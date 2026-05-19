@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>vllm-ascend vs vllm-ascend-lby —— 35B_mxfp8.sh 路径差异分析</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --fg: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #c0392b;
+    --accent2: #2c3e50;
+    --code-bg: #f0eee8;
+    --border: #d8d4ca;
+    --card-bg: #ffffff;
+    --hl: #fff4d6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.7;
+  }
+  .container {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+  header {
+    border-bottom: 2px solid var(--accent2);
+    padding-bottom: 24px;
+    margin-bottom: 40px;
+  }
+  h1 {
+    font-family: "Times New Roman", "Songti SC", serif;
+    font-size: 2.4rem;
+    font-weight: 700;
+    margin: 0 0 12px 0;
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 1rem;
+    margin: 0;
+  }
+  .meta {
+    display: flex;
+    gap: 24px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .meta span strong { color: var(--fg); }
+  h2 {
+    font-family: "Times New Roman", "Songti SC", serif;
+    font-size: 1.5rem;
+    color: var(--accent2);
+    margin-top: 48px;
+    margin-bottom: 16px;
+    border-left: 4px solid var(--accent);
+    padding-left: 12px;
+  }
+  h3 {
+    font-size: 1.1rem;
+    margin-top: 28px;
+    margin-bottom: 8px;
+    color: var(--accent2);
+  }
+  code, pre, .mono {
+    font-family: "JetBrains Mono", "Cascadia Code", Consolas, "Fira Code", monospace;
+    font-size: 0.88em;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    line-height: 1.5;
+    color: #2c2c2c;
+  }
+  pre code { background: transparent; padding: 0; color: inherit; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+  }
+  .comparison > div {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+  }
+  .comparison h4 {
+    margin: 0 0 8px 0;
+    font-size: 0.95rem;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--border);
+  }
+  .col-main h4 { color: #2980b9; }
+  .col-lby h4 { color: #27ae60; }
+  .badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .badge-main { background: #e6f0fa; color: #2980b9; }
+  .badge-lby { background: #e6f5ec; color: #27ae60; }
+  .badge-impact { background: #fdecea; color: var(--accent); }
+  .badge-noimpact { background: #efefef; color: var(--muted); }
+  .impact {
+    background: var(--hl);
+    border-left: 3px solid #d4a017;
+    padding: 10px 14px;
+    margin: 8px 0;
+    font-size: 0.92rem;
+  }
+  .impact strong { color: #8a6510; }
+  ul { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 0.9rem;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  th {
+    background: #ecebe5;
+    font-weight: 600;
+  }
+  td.center { text-align: center; }
+  .conclusion {
+    margin-top: 48px;
+    padding: 24px 28px;
+    background: linear-gradient(180deg, #fefbf3 0%, #faf6e8 100%);
+    border: 1px solid #d4a017;
+    border-radius: 6px;
+  }
+  .conclusion h2 {
+    margin-top: 0;
+    border-left-color: #d4a017;
+  }
+  .footnote {
+    margin-top: 60px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>vllm-ascend &nbsp;vs&nbsp; vllm-ascend-lby</h1>
+  <p class="subtitle">在 <code>scripts/35B_mxfp8.sh</code> 路径下的代码差异分析</p>
+  <div class="meta">
+    <span><strong>模型：</strong>Qwen3.5-35B-A3B-W8A8-MXFP8-FULL-QUANT</span>
+    <span><strong>投机解码：</strong>qwen3_5_mtp (num=2)</span>
+    <span><strong>编译：</strong>FULL_DECODE_ONLY</span>
+    <span><strong>并行：</strong>DP=1 / TP=1</span>
+  </div>
+  <div class="meta">
+    <span><strong>主线 HEAD：</strong><code>c9966f12 解决精度问题</code></span>
+    <span><strong>lby HEAD：</strong><code>045aeac1 fix2</code></span>
+  </div>
+</header>
+
+<h2>0. TL;DR</h2>
+<div class="card">
+  <ul>
+    <li><strong>lby 是性能优先的活跃开发分支</strong>，带 Qwen3.5 三合一融合 kernel、MXFP8 padding fix、ENPU 路径、hamming sparse、extract_hidden_states、ngram_npu 等新特性。</li>
+    <li><strong>主线 (<code>vllm-ascend/</code>) 是精度修复分支</strong>，commit <code>解决精度问题</code> 显式 <strong>把那个融合 kernel 注释掉了</strong>，回退到分离 op 实现。</li>
+    <li>同一份 <code>35B_mxfp8.sh</code> 跑出来：<strong>lby 通常更快，主仓数值更稳。</strong></li>
+    <li><code>vllm-ascend-lby/</code> 根目录的 <code>1</code>、<code>2</code>、<code>1.txt</code>、<code>2.txt</code>、<code>3.txt</code> 都是 pip 安装日志，与代码差异无关。</li>
+  </ul>
+</div>
+
+<h2>1. Qwen3.5 Attention 前向 <span class="badge badge-impact">影响最大</span></h2>
+<p>文件：<code>vllm_ascend/patch/worker/patch_qwen3_5.py</code> &nbsp;—&nbsp; 类 <code>AscendQwen3NextAttention.forward</code></p>
+
+<div class="comparison">
+  <div class="col-main">
+    <h4>vllm-ascend (主线) <span class="badge badge-main">精度优先</span></h4>
+    <ul>
+      <li>融合 Triton kernel <code>triton_split_qkv_rmsnorm_mrope</code> <strong>整段被注释掉</strong>。</li>
+      <li>QKV split、<code>q_norm</code>/<code>k_norm</code>、<code>rotary_emb</code> 各自独立 op。</li>
+      <li>每层多发 3–5 个 op，但数值稳定。</li>
+    </ul>
+  </div>
+  <div class="col-lby">
+    <h4>vllm-ascend-lby <span class="badge badge-lby">性能优先</span></h4>
+    <ul>
+      <li>对 <code>model_type</code> 含 <code>qwen3_5</code> 的模型走融合 kernel：split + <code>(1 + norm)</code> + MROPE 一把搞定。</li>
+      <li>每层只 launch 一个 kernel，attention 入口前预处理大幅缩短。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="impact">
+  <strong>直接影响：</strong>35B-A3B 这种每层都进 attention 的稠密结构，单 step launch 数差异显著；这是两个仓 throughput 差距的主要来源。
+</div>
+
+<h2>2. MXFP8 量化方法 <span class="badge badge-impact">数值 / 兼容</span></h2>
+<p>文件：<code>vllm_ascend/quantization/methods/w8a8_mxfp8.py</code></p>
+
+<table>
+  <tr><th>变化点</th><th>主线</th><th>lby</th></tr>
+  <tr>
+    <td>weight_scale 形状</td>
+    <td><code>input_size // group_size</code></td>
+    <td><code>cdiv(input_size, group_size)</code>，且不能被 2 整除时 <code>F.pad(..., (0,1))</code></td>
+  </tr>
+  <tr>
+    <td>MoE apply 接口</td>
+    <td><code>global_num_experts - global_redundant_expert_num</code></td>
+    <td><code>get_moe_num_logical_experts(layer, ..., n_shared_experts)</code>，<br>显式处理共享专家 + 冗余专家</td>
+  </tr>
+  <tr>
+    <td>fused_experts 数据类型</td>
+    <td>仅识别 <code>bf16</code></td>
+    <td>兼容 <code>torch.float8_e4m3fn</code>（MXFP8 直传）</td>
+  </tr>
+</table>
+
+<div class="impact">
+  <strong>对应 commit：</strong>lby 的 <code>d857777d [Ascend950][BugFix] Fix w8a8_mxfp8 weight_scale group count: use cdiv for non-divisible input_size</code>。
+  主线在 input_size 不能被 group_size 整除时会少加载一列 scale，权重维度对不上就直接报错。
+</div>
+
+<h2>3. ACL Graph &nbsp;<span class="mono">FULL_DECODE_ONLY</span></h2>
+<p>文件：<code>vllm_ascend/compilation/acl_graph.py</code> &nbsp;—&nbsp; <code>ACLGraphWrapper</code></p>
+
+<div class="card">
+  <p>lby 的 wrapper 多了两个构造参数：</p>
+<pre><code>def __init__(self, ..., *, use_eagle: bool = False, enable_enpu: bool = False): ...</code></pre>
+  <p>把"replay 之前是否要 <code>current_stream().synchronize()</code>"的判定从 vllm_config 推导改为显式注入，并新增 <strong>ENPU 路径</strong>。lby 的 model_runner 里会读 C 侧环境变量：</p>
+<pre><code>_enpu = get_c_env("ENPU_ENABLE")
+self.enable_enpu = _enpu is not None and _enpu.lower() == "true"</code></pre>
+  <p>主线无 ENPU 路径，replay 同步仅依据 <code>vllm_config.speculative_config.use_eagle()</code>。</p>
+</div>
+
+<h2>4. 投机解码（脚本走 <span class="mono">qwen3_5_mtp</span>）</h2>
+<p>upstream vLLM 把 <code>qwen3_5_mtp</code> 解析为 <code>mtp</code>，进入 <code>AscendEagleProposer</code>。</p>
+
+<table>
+  <tr><th>文件</th><th>差异行数（diff -u）</th></tr>
+  <tr><td><code>spec_decode/eagle_proposer.py</code></td><td class="center">346</td></tr>
+  <tr><td><code>worker/model_runner_v1.py</code></td><td class="center">892</td></tr>
+</table>
+
+<h3>lby 独有</h3>
+<ul>
+  <li><code>spec_decode/ngram_proposer_npu.py</code> &nbsp;—&nbsp; 接入 <code>torch.ops._C_ascend.npu_ngram_spec_decode</code>。</li>
+  <li><code>spec_decode/extract_hidden_states_proposer.py</code>。</li>
+  <li><code>worker/v2/spec_decode/rejection_sampler_utils.py</code>。</li>
+  <li>worker init 中的 <code>hamming_sparse</code> 路径（<code>kvcomp_utils.initialize_kvcomp_metadata</code>）。</li>
+</ul>
+
+<h3>patch/worker/__init__.py</h3>
+<div class="comparison">
+  <div class="col-main">
+    <h4>主线</h4>
+    <ul>
+      <li>无条件 import v2 patch。</li>
+      <li>多 import：<code>patch_bert</code>、<code>patch_multimodal_merge</code>、<code>patch_huanyuan_vl</code>、<code>patch_routed_experts_capturer</code>。</li>
+    </ul>
+  </div>
+  <div class="col-lby">
+    <h4>lby</h4>
+    <ul>
+      <li><code>_V2_MODEL_RUNNER_SUPPORTED = not vllm_version_is("0.20.2")</code> 网住所有 v2 patch。</li>
+      <li>多 <code>patch_idex_310</code>（310p 路径）。</li>
+      <li>不加载上面四个 patch。</li>
+    </ul>
+  </div>
+</div>
+
+<div class="impact">
+  脚本只用 MTP，<code>ngram_proposer_npu</code>/<code>extract_hidden_states</code>/<code>hamming_sparse</code> 实际走不到；
+  但 <strong>同一份 <code>model_runner_v1.py</code> 里 draft model 流同步方式、ENPU 顺序、dump 配置等共用代码都被改了</strong>，影响仍然落到 MTP 路径上。
+</div>
+
+<h2>5. CPU Binding &nbsp;<span class="mono">enable_cpu_binding:true</span></h2>
+<p>文件：<code>vllm_ascend/cpu_binding.py</code></p>
+<ul>
+  <li>大部分是 f-string → lazy logging 的清理。</li>
+  <li><strong>唯一行为差异</strong>：lby 在分配 CPU 池时扫描 <code>all_logic_npus</code>，把"虽然不可见但其 NUMA 亲和 CPU 与本进程 cpuset 重叠"的 NPU 也参与冲突计算，最后再用 <code>running_npu_list</code> 过滤；主线只看可见 NPU。</li>
+</ul>
+<div class="impact">
+  脚本是单卡 <code>ASCEND_RT_VISIBLE_DEVICES=2</code>、DP=1/TP=1 &nbsp;<span class="badge badge-noimpact">无实际影响</span>
+</div>
+
+<h2>6. ascend_config.py</h2>
+<p>lby 新增项（脚本均未触发）：</p>
+<ul>
+  <li><code>additional_config.dump_config</code> &nbsp;—&nbsp; dict → 落盘成 json (<code>_materialize_dump_config_to_file</code>)。</li>
+  <li><code>hamming_sparse</code> 开关 + <code>sparse_json_location</code> 校验。</li>
+  <li><code>profiling_chunk_config.min_chunk</code> 在超过 <code>max_num_batched_tokens</code> 时自动 clamp。</li>
+</ul>
+
+<h2>7. csrc 目录布局完全不同 <span class="badge badge-impact">编译产物不一样</span></h2>
+<div class="comparison">
+  <div class="col-main">
+    <h4>主线 csrc 独有目录</h4>
+    <ul class="mono" style="font-size:0.82rem">
+      <li>dispatch_ffn_combine{,_bf16,_w4_a8}</li>
+      <li>dispatch_gmm_combine_decode</li>
+      <li>dispatch_layout / notify_dispatch</li>
+      <li>moe_dispatch_normal / moe_combine_normal</li>
+      <li>moe_gating_top_k / moe_grouped_matmul</li>
+      <li>moe_init_routing_custom</li>
+      <li>lightning_indexer_quant / lightning_indexer_vllm</li>
+      <li>sparse_flash_attention</li>
+      <li>recurrent_gated_delta_rule{,_v310}</li>
+      <li>hamming_dist_top_k</li>
+      <li>matmul_allreduce_add_rmsnorm</li>
+      <li>transpose_kv_cache_by_block</li>
+      <li>causal_conv1d{,_v310}</li>
+      <li>add_rms_norm_bias / apply_top_k_top_p_custom</li>
+      <li>grouped_matmul_swiglu_quant_weight_nz_tensor_list</li>
+      <li>copy_and_expand_eagle_inputs</li>
+      <li>reshape_and_cache_bnsd</li>
+    </ul>
+  </div>
+  <div class="col-lby">
+    <h4>lby csrc 独有目录</h4>
+    <ul class="mono" style="font-size:0.82rem">
+      <li>moe / gmm / mc2 / attention / common</li>
+      <li>完整的 csrc/cmake/scripts/ opbuild 链</li>
+      <li>cmake/{build_empty_package, custom_build, dependencies,<br>
+        gen_ops_info, package, obj_func, opbuild,<br>
+        rty_obj_func, runtimeKB, static, symbol, ut, variables}.cmake</li>
+      <li>cmake/modules/Find{aicpu,dlog,json,metadef,nnopbase,OPBASE,<br>
+        optiling,platform,Python,runtime,securec,tilingapi,unified_dlog}.cmake</li>
+      <li>cmake/third_party/、version.info</li>
+    </ul>
+  </div>
+</div>
+<div class="impact">
+  两边 <code>csrc/torch_binding.cpp</code>、<code>csrc/ops.h</code> 也不同 &nbsp;—&nbsp; 编译出的 <code>_C_ascend</code> 算子表是不同的。lby 的算子按业务模块组织（旧版/统一布局），主线按算子名扁平铺开。
+</div>
+
+<h2>8. 其他相关但脚本下不直接触发 / v2 不进入</h2>
+<p>下列文件均有变更，但脚本未切到 v2 model runner，部分 v2 路径不会进入：</p>
+<ul>
+  <li><code>attention/mla_v1.py</code>、<code>attention/sfa_v1.py</code></li>
+  <li><code>ops/layernorm.py</code>、<code>ops/rotary_embedding.py</code>、<code>ops/mla.py</code></li>
+  <li><code>ops/fused_moe/{experts_selector, fused_moe, moe_comm_method, moe_mlp, prepare_finalize, token_dispatcher}.py</code></li>
+  <li><code>quantization/methods/base.py</code>、<code>quantization/method_adapters.py</code></li>
+  <li><code>worker/v2/model_runner.py</code>（v2 路径，脚本未启用）</li>
+</ul>
+
+<div class="conclusion">
+  <h2>一句话结论</h2>
+  <p>
+    <strong>lby 是性能优先的活跃开发分支</strong>（带 Qwen3.5 三合一融合 kernel、MXFP8 padding fix、ENPU/Hamming sparse/extract_hidden_states 等新特性）；
+    <strong>主仓这条 <code>qwen3.5 a5 adapt → baseline → 解决精度问题</code> 分支为了修精度显式禁掉了那个融合 kernel</strong>。
+  </p>
+  <p>
+    所以同一份 <code>35B_mxfp8.sh</code> 脚本在两个仓上跑出来的 <strong>吞吐和数值都会不一样</strong> &nbsp;—&nbsp;
+    通常 <span style="color:#27ae60;font-weight:600">lby 更快</span>、<span style="color:#2980b9;font-weight:600">主仓数值更稳</span>。
+  </p>
+  <p style="margin-bottom:0">
+    lby 仓里的 <code>1</code> / <code>2</code> / <code>*.txt</code> 看起来是 pip install 输出日志（python 3.11 + torch 2.10.0 + transformers 5.5.3 环境，路径 <code>/home/l00939323/0519main/vllm-ascend</code>），跟代码无关。
+  </p>
+</div>
+
+<div class="footnote">
+  分析基于：<code>diff -rq vllm-ascend vllm-ascend-lby</code> 全量目录对比，并对脚本实际触发路径（MXFP8 量化、Qwen3.5 patch、ACL graph、cpu_binding、spec_decode、ascend_config、csrc）做了逐文件 diff。报告时间：2026-05-19。
+</div>
+
+</div>
+</body>
+</html>

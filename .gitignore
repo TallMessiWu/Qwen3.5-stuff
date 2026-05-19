@@ -1,0 +1,19 @@
+# Local agent/CLI state
+.claude/
+.agents/
+.gemini/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Profiler / logs (e.g., the 1/2/*.txt pip logs in vllm-ascend-lby)
+*.log

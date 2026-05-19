@@ -1,0 +1,9 @@
+[submodule "vllm-ascend"]
+	path = vllm-ascend
+	url = https://github.com/TallMessiWu/vllm-ascend
+[submodule "vllm-ascend-lby"]
+	path = vllm-ascend-lby
+	url = https://github.com/Bybbbb11/vllm-ascend.git
+[submodule "vllm"]
+	path = vllm
+	url = https://github.com/vllm-project/vllm.git
