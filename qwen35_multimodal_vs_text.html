@@ -890,50 +890,22 @@ flowchart TB
   <div class="mermaid-wrap">
     <div class="mermaid">
 flowchart TD
-    START["EncoderRunner.execute_mm_encoder()"] --> EMB
-    EMB["model.embed_multimodal(mm_kwargs_batch)"] --> PARSE
-    PARSE["_parse_and_validate_multimodal_inputs()\n提取 pixel_values / image_grid_thw\n校验输入格式"] --> BRANCH
+    A["EncoderRunner.execute_mm_encoder()"] --> B["embed_multimodal()\n解析并验证多模态输入"]
+    B --> C{"输入类型?"}
+    C -->|"预计算 embeds"| D["直接使用预计算 embeds\n跳过视觉编码器"]
+    C -->|"pixel_values"| E["_process_image_input()"]
+    E --> F["VisionTransformer.forward()\n1. patch_embed 像素转特征\n2. 位置编码 rot_pos_emb / interpolate\n3. Transformer Blocks x depth\n4. Merger 空间合并 LN+MLP"]
+    F --> G["image_embeds.split(sizes)\n按图片数量拆分"]
+    G --> H["返回 tuple of Tensor\n每个元素对应一张图片或视频"]
 
-    BRANCH{"是否预计算 embeds?"}
-    BRANCH -->|"type == image_embeds"| DIRECT["直接使用预计算 embeds\n跳过视觉编码器"]
-    BRANCH -->|"type == pixel_values"| PROC
-
-    PROC["_process_image_input()"] --> DP{"是否数据并行?"}
-    DP -->|"use_data_parallel=True"| DPV["run_dp_sharded_mrope_vision_model()\n分布式视觉编码"]
-    DP -->|"use_data_parallel=False"| VISION["self.visual(pixel_values, grid_thw)"]
-
-    VISION --> VIT["VisionTransformer.forward()\nQwen2 或 Qwen3 版本"]
-    VIT --> PE["patch_embed()\npixel_values → patch embedding\nConv3d 卷积"]
-    PE --> POS["位置编码\nQwen2: rot_pos_emb 旋转位置编码\nQwen3: fast_pos_embed_interpolate 插值"]
-    POS --> SEQLEN["计算 cu_seqlens 累积序列长度"]
-    SEQLEN --> BLOCKS["Vision Transformer Blocks x depth\nQwen2VisionAttention + MLP\n支持 Flash Attention"]
-    BLOCKS --> DS{"Qwen3 DeepStack?"}
-    DS -->|"当前层在 deepstack_visual_indexes 中"| DSF["deepstack_merger_list 提取\n中间层特征"]
-    DS -->|"否"| MERGE2["Merger 空间合并\nLN + MLP\n输出 shape: seq_len x hidden_size"]
-    DSF --> MERGE2
-
-    MERGE2 --> SPLIT["image_embeds.split(sizes)\n拆分回各张图片"]
-    SPLIT --> RETURN["返回 tuple of Tensor\n每个元素对应一张图片/视频"]
-
-    style START fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style EMB fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style PARSE fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style BRANCH fill:#292524,stroke:#d97706,color:#fcd34d
-    style DIRECT fill:#064e3b,stroke:#059669,color:#d1fae5
-    style PROC fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style DP fill:#292524,stroke:#d97706,color:#fcd34d
-    style DPV fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style VISION fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style VIT fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style PE fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style POS fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style SEQLEN fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style BLOCKS fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style DS fill:#292524,stroke:#d97706,color:#fcd34d
-    style DSF fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style MERGE2 fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style SPLIT fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style RETURN fill:#4c1d95,stroke:#7c3aed,color:#e9d5ff
+    style A fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
+    style B fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
+    style C fill:#292524,stroke:#d97706,color:#fcd34d
+    style D fill:#064e3b,stroke:#059669,color:#d1fae5
+    style E fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
+    style F fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style G fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
+    style H fill:#4c1d95,stroke:#7c3aed,color:#e9d5ff
     </div>
   </div>
 
