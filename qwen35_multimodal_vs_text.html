@@ -389,6 +389,55 @@
   .b-txt { background: #064e3b; color: #6ee7b7; }
   .b-new { background: #7f1d1d; color: #fca5a5; }
 
+  /* HTML flow diagram */
+  .html-flow {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin: 20px 0;
+  }
+  .hf-node {
+    width: 100%;
+    max-width: 640px;
+    border-radius: 8px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+  }
+  .hf-purple { background: #1e1b4b; border-color: #7c3aed; }
+  .hf-green  { background: #022c22; border-color: #059669; }
+  .hf-deep   { background: #0d0d1f; border-color: #4c1d95; }
+  .hf-return { background: #2e1065; border-color: #7c3aed; }
+  .hf-label  { font-family: 'JetBrains Mono','Fira Code',monospace; font-size: 12px; font-weight: 700; color: #c4b5fd; margin-bottom: 4px; }
+  .hf-sub    { font-size: 11px; color: var(--text-muted); }
+  .hf-arrow  { font-size: 20px; color: #7c3aed; line-height: 1.2; margin: 2px 0; text-align: center; }
+  .hf-branch { width: 100%; max-width: 840px; }
+  .hf-diamond {
+    margin: 0 auto 16px;
+    width: fit-content;
+    padding: 10px 24px;
+    background: #292524;
+    border: 2px solid #d97706;
+    border-radius: 6px;
+    color: #fcd34d;
+    font-weight: 700;
+    font-size: 13px;
+    text-align: center;
+    clip-path: polygon(12px 0%, calc(100% - 12px) 0%, 100% 50%, calc(100% - 12px) 100%, 12px 100%, 0% 50%);
+    padding: 10px 36px;
+  }
+  .hf-branch-row { display: flex; gap: 24px; align-items: flex-start; justify-content: center; }
+  .hf-branch-col { display: flex; flex-direction: column; align-items: center; flex: 1; max-width: 380px; }
+  .hf-branch-label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; font-style: italic; }
+  .hf-steps { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .hf-step  { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; color: #e9d5ff; line-height: 1.5; }
+  .hf-step-branch { color: #fcd34d; }
+  .hf-num   { background: #4c1d95; color: #c4b5fd; border-radius: 50%; min-width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; flex-shrink: 0; margin-top: 2px; }
+
   @media (max-width: 900px) {
     .content { padding: 16px; }
     .tabs { padding: 12px 16px 0; overflow-x: auto; }
@@ -887,26 +936,64 @@ flowchart TB
 
   <h2>视觉编码器调用链</h2>
 
-  <div class="mermaid-wrap">
-    <div class="mermaid">
-flowchart TD
-    A["EncoderRunner.execute_mm_encoder()"] --> B["embed_multimodal()\n解析并验证多模态输入"]
-    B --> C{"输入类型?"}
-    C -->|"预计算 embeds"| D["直接使用预计算 embeds\n跳过视觉编码器"]
-    C -->|"pixel_values"| E["_process_image_input()"]
-    E --> F["VisionTransformer.forward()\n1. patch_embed 像素转特征\n2. 位置编码 rot_pos_emb / interpolate\n3. Transformer Blocks x depth\n4. Merger 空间合并 LN+MLP"]
-    F --> G["image_embeds.split(sizes)\n按图片数量拆分"]
-    G --> H["返回 tuple of Tensor\n每个元素对应一张图片或视频"]
+  <div class="html-flow">
 
-    style A fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style B fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style C fill:#292524,stroke:#d97706,color:#fcd34d
-    style D fill:#064e3b,stroke:#059669,color:#d1fae5
-    style E fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style F fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style G fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style H fill:#4c1d95,stroke:#7c3aed,color:#e9d5ff
+    <div class="hf-node hf-purple">
+      <div class="hf-label">EncoderRunner.execute_mm_encoder()</div>
+      <div class="hf-sub">vllm/v1/worker/gpu/mm/encoder_runner.py</div>
     </div>
+    <div class="hf-arrow">↓</div>
+
+    <div class="hf-node hf-purple">
+      <div class="hf-label">model.embed_multimodal(mm_kwargs_batch)</div>
+      <div class="hf-sub">解析并验证多模态输入，提取 pixel_values / image_grid_thw</div>
+    </div>
+    <div class="hf-arrow">↓</div>
+
+    <div class="hf-branch">
+      <div class="hf-diamond">输入类型?</div>
+      <div class="hf-branch-row">
+        <div class="hf-branch-col">
+          <div class="hf-branch-label">预计算 embeds</div>
+          <div class="hf-node hf-green" style="margin-top:8px">
+            <div class="hf-label">直接使用预计算 embeds</div>
+            <div class="hf-sub">跳过视觉编码器</div>
+          </div>
+        </div>
+        <div class="hf-branch-col">
+          <div class="hf-branch-label">pixel_values</div>
+          <div class="hf-node hf-purple" style="margin-top:8px">
+            <div class="hf-label">_process_image_input()</div>
+            <div class="hf-sub">进入视觉编码流程</div>
+          </div>
+          <div class="hf-arrow">↓</div>
+          <div class="hf-node hf-deep" style="border-left:3px solid #9333ea">
+            <div class="hf-label" style="color:#c4b5fd">VisionTransformer.forward()</div>
+            <div class="hf-steps">
+              <div class="hf-step"><span class="hf-num">1</span><span>patch_embed — Conv3d 将像素转为 patch 特征</span></div>
+              <div class="hf-step"><span class="hf-num">2</span><span>位置编码 — Qwen2: rot_pos_emb / Qwen3: interpolate</span></div>
+              <div class="hf-step"><span class="hf-num">3</span><span>Vision Transformer Blocks × depth（含 Flash Attention）</span></div>
+              <div class="hf-step hf-step-branch">
+                <span class="hf-num">4</span>
+                <span>Qwen3 DeepStack：在指定层提取中间特征并拼接</span>
+              </div>
+              <div class="hf-step"><span class="hf-num">5</span><span>Merger 空间合并 — LN + MLP，输出 (seq_len, hidden_size)</span></div>
+            </div>
+          </div>
+          <div class="hf-arrow">↓</div>
+          <div class="hf-node hf-purple">
+            <div class="hf-label">image_embeds.split(sizes)</div>
+            <div class="hf-sub">按图片数量拆分</div>
+          </div>
+          <div class="hf-arrow">↓</div>
+          <div class="hf-node hf-return">
+            <div class="hf-label">返回 tuple of Tensor</div>
+            <div class="hf-sub">每个元素对应一张图片或视频的 embedding</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <h2>Qwen2-VL vs Qwen3-VL 视觉编码器差异</h2>
