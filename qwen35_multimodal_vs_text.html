@@ -429,44 +429,28 @@
 
   <div class="mermaid-wrap">
     <div class="mermaid">
-graph TB
-    subgraph VLM["Qwen3VLForConditionalGeneration（整个多模态模型）"]
-        direction TB
-        subgraph VE["self.visual（视觉编码器，仅多模态请求执行）"]
-            PE2["patch_embed\n像素 → patch embedding"]
-            BLOCKS2["Vision Transformer Blocks\n（独立的 ViT，不共享 LLM 权重）"]
-            MERGER["Merger 空间合并层"]
-            PE2 --> BLOCKS2 --> MERGER
-        end
+flowchart TB
+    IMG["图片输入"] --> PE2["patch_embed\n像素转 patch 特征"]
+    PE2 --> VB["Vision Transformer Blocks\nViT 独立权重，不共享 LLM 参数"]
+    VB --> MG["Merger 空间合并层\n输出 num_vis_tokens x hidden_size"]
+    MG -->|"视觉 embedding"| FUSE
 
-        subgraph LM["self.language_model（Qwen3LLMForCausalLM）"]
-            EMBED["embed_tokens\ntoken ID → embedding"]
-            FUSE["合并层\n视觉 embedding 插入文本 embedding 序列"]
-            LAYERS["Qwen3 Transformer Layers\n（32 / 64 / 80 层，取决于模型尺寸）"]
-            LMH["lm_head → logits → 采样"]
-            EMBED --> FUSE
-            FUSE --> LAYERS --> LMH
-        end
+    TXT["文本 token"] --> ET["embed_tokens\ntoken ID 转 embedding"]
+    ET --> FUSE
 
-        VE -->|"视觉 embedding\n(num_vis_tokens, hidden_size)"| FUSE
-    end
+    FUSE["合并层\n视觉 embedding 插入文本 embedding 序列"] --> TR["Qwen3 Transformer Layers\n32 / 64 / 80 层，取决于模型尺寸"]
+    TR --> LH["lm_head 采样"]
+    LH --> OUT["生成 token"]
 
-    IMG_IN["🖼️ 图片输入"] --> VE
-    TXT_IN["📝 文本 token"] --> EMBED
-    LMH --> OUT["生成的 token"]
-
-    style VLM fill:#0d1117,stroke:#7c3aed,color:#e9d5ff
-    style VE fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style LM fill:#022c22,stroke:#059669,color:#d1fae5
+    style IMG fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
     style PE2 fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style BLOCKS2 fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style MERGER fill:#2e1065,stroke:#9333ea,color:#e9d5ff
-    style EMBED fill:#064e3b,stroke:#059669,color:#d1fae5
+    style VB fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style MG fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style TXT fill:#064e3b,stroke:#059669,color:#d1fae5
+    style ET fill:#064e3b,stroke:#059669,color:#d1fae5
     style FUSE fill:#292524,stroke:#d97706,color:#fcd34d
-    style LAYERS fill:#064e3b,stroke:#059669,color:#d1fae5
-    style LMH fill:#064e3b,stroke:#059669,color:#d1fae5
-    style IMG_IN fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
-    style TXT_IN fill:#022c22,stroke:#059669,color:#d1fae5
+    style TR fill:#064e3b,stroke:#059669,color:#d1fae5
+    style LH fill:#064e3b,stroke:#059669,color:#d1fae5
     style OUT fill:#292524,stroke:#d97706,color:#fcd34d
     </div>
   </div>
@@ -667,12 +651,12 @@ graph LR
 
   <div class="mermaid-wrap">
     <div class="mermaid">
-graph LR
-    A["输入图片\n1024×1024 px"] --> B["smart_resize()\npatch_size=14\nmin/max_pixels约束"]
-    B --> C["调整为 896×896 px\n(64×64 patches)"]
-    C --> D["image_grid_thw\n= [1, 64, 64]"]
-    D --> E["视觉token数\n= 1×64×64 ÷ merge_size²\n= 4096 ÷ 4 = 1024"]
-    E --> F["插入1024个\n视觉token到序列中"]
+flowchart LR
+    A["输入图片\n1024 x 1024 px"] --> B["smart_resize()\npatch_size=14\nmin/max_pixels 约束"]
+    B --> C["调整为 896 x 896 px\n64 x 64 patches"]
+    C --> D["image_grid_thw\nt=1, h=64, w=64"]
+    D --> E["视觉 token 数\n1 x 64 x 64 / merge_size^2\n= 4096 / 4 = 1024"]
+    E --> F["插入 1024 个\n视觉 token 到序列中"]
 
     style A fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
     style B fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
@@ -867,20 +851,16 @@ flowchart TD
 
   <div class="mermaid-wrap">
     <div class="mermaid">
-graph TB
-    subgraph MROPE["🖼️ 多模态：MRoPE（3维旋转位置编码）"]
+flowchart TB
+    subgraph MROPE["多模态：MRoPE 3维旋转位置编码"]
         direction LR
-        MT["时间维度 t\n（帧序号）"]
-        MH["高度维度 h\n（patch 行坐标）"]
-        MW["宽度维度 w\n（patch 列坐标）"]
-        MT --> MOUT["positions\nshape: 3 × seq_len"]
-        MH --> MOUT
-        MW --> MOUT
+        MT["时间维度 t\n帧序号"] --> MOUT["positions\nshape: 3 x seq_len"]
+        MH["高度维度 h\npatch 行坐标"] --> MOUT
+        MW["宽度维度 w\npatch 列坐标"] --> MOUT
     end
-    subgraph ROPE["📝 纯文本：标准 RoPE（1维）"]
+    subgraph ROPE["纯文本：标准 RoPE 1维"]
         direction LR
-        RP["序列位置\n0, 1, 2, ..."]
-        RP --> ROUT["positions\nshape: seq_len"]
+        RP["序列位置\n0, 1, 2 ..."] --> ROUT["positions\nshape: seq_len"]
     end
 
     style MROPE fill:#1e1b4b,stroke:#7c3aed,color:#e9d5ff
@@ -1041,14 +1021,14 @@ sequenceDiagram
     VisEnc-->>EncRunner: vision_embeddings (num_tokens, hidden_size)
     EncRunner->>EncRunner: 缓存 vision embeddings（mm_hash）
 
-    EncRunner->>LLM: forward(inputs_embeds=merged_embeds, positions=[3,seq])
+    EncRunner->>LLM: forward(inputs_embeds=merged_embeds, positions 3xseq)
     LLM->>KVCache: 写入所有 token 的 KV
-    LLM-->>Engine: logits → 采样 → 第一个 token
+    LLM-->>Engine: logits 采样 第一个 token
 
-    loop 自回归 Decode（与纯文本相同）
-        Engine->>LLM: forward(input_ids=[new_token])
-        LLM->>KVCache: 读取历史 KV + 写入新 KV
-        LLM-->>Engine: logits → 采样 → 下一个 token
+    loop 自回归 Decode 与纯文本相同
+        Engine->>LLM: forward(input_ids=new_token)
+        LLM->>KVCache: 读取历史 KV 写入新 KV
+        LLM-->>Engine: logits 采样 下一个 token
     end
     </div>
   </div>
