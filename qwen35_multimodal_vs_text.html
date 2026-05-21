@@ -512,13 +512,13 @@ graph TB
   <div class="mermaid-wrap">
     <div class="mermaid">
 graph LR
-    subgraph INPUT["LLM 看到的序列（inputs_embeds）"]
+    subgraph INPUT["LLM 看到的序列 inputs_embeds"]
         direction LR
-        T1["[你好]\n文本 embedding\n(1, 4096)"]
-        V1["[图片 token 1]\n视觉 embedding\n(1, 4096)"]
-        V2["[图片 token 2]\n视觉 embedding\n(1, 4096)"]
-        VN["[... × N]\n视觉 embedding\n×768 个"]
-        T2["[请描述]\n文本 embedding\n(1, 4096)"]
+        T1["你好\n文本 embedding\n1 x 4096"]
+        V1["视觉 token 1\n视觉 embedding\n1 x 4096"]
+        V2["视觉 token 2\n视觉 embedding\n1 x 4096"]
+        VN["... x N 个\n视觉 embedding\n共 768 个"]
+        T2["请描述\n文本 embedding\n1 x 4096"]
     end
 
     NOTE["语言模型只看到形状相同的 embedding 向量\n不区分来源，统一当作序列 token 处理"]
@@ -846,12 +846,12 @@ graph LR
   <div class="mermaid-wrap">
     <div class="mermaid">
 flowchart TD
-    IMG["图片原始分辨率\n例：1024 × 768 px"] --> SR["smart_resize()\n• 保持宽高比\n• 约束 min/max_pixels\n• 对齐 patch_size=14"]
-    SR --> RESIZED["调整后分辨率\n例：896 × 672 px"]
-    RESIZED --> GRID["计算 grid_thw\n= [1, 64, 48]\n（1帧，64行，48列patch）"]
-    GRID --> TOTAL["总 patch 数\n= 1 × 64 × 48 = 3072"]
-    TOTAL --> MERGE["空间合并\nmerge_size=2\n÷ 2² = ÷ 4"]
-    MERGE --> VTOKENS["视觉 token 数\n= 3072 ÷ 4 = 768\n插入到 prompt 序列中"]
+    IMG["图片原始分辨率\n例：1024 x 768 px"] --> SR["smart_resize()\n保持宽高比\n约束 min/max_pixels\n对齐 patch_size=14"]
+    SR --> RESIZED["调整后分辨率\n例：896 x 672 px"]
+    RESIZED --> GRID["计算 grid_thw\nt=1, h=64, w=48\n共 64 行 48 列 patch"]
+    GRID --> TOTAL["总 patch 数\n1 x 64 x 48 = 3072"]
+    TOTAL --> MERGE["空间合并\nmerge_size=2\n每 2x2 个 patch 合并为 1 token"]
+    MERGE --> VTOKENS["视觉 token 数\n3072 / 4 = 768\n插入到 prompt 序列中"]
 
     style IMG fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
     style SR fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
@@ -910,30 +910,30 @@ graph TB
   <div class="mermaid-wrap">
     <div class="mermaid">
 flowchart TD
-    START["EncoderRunner.execute_mm_encoder()\nvllm/v1/worker/gpu/mm/encoder_runner.py"] --> EMB
-    EMB["model.embed_multimodal(**mm_kwargs_batch)"] --> PARSE
-    PARSE["_parse_and_validate_multimodal_inputs()\n• 提取 pixel_values\n• 提取 image_grid_thw\n• 检查输入格式"] --> BRANCH
+    START["EncoderRunner.execute_mm_encoder()"] --> EMB
+    EMB["model.embed_multimodal(mm_kwargs_batch)"] --> PARSE
+    PARSE["_parse_and_validate_multimodal_inputs()\n提取 pixel_values / image_grid_thw\n校验输入格式"] --> BRANCH
 
     BRANCH{"是否预计算 embeds?"}
-    BRANCH -->|"image_input.type == 'image_embeds'"| DIRECT["直接使用预计算 embeds\n跳过视觉编码器"]
-    BRANCH -->|"type == 'pixel_values'"| PROC
+    BRANCH -->|"type == image_embeds"| DIRECT["直接使用预计算 embeds\n跳过视觉编码器"]
+    BRANCH -->|"type == pixel_values"| PROC
 
     PROC["_process_image_input()"] --> DP{"是否数据并行?"}
     DP -->|"use_data_parallel=True"| DPV["run_dp_sharded_mrope_vision_model()\n分布式视觉编码"]
-    DP -->|"use_data_parallel=False"| VISION["self.visual(pixel_values, grid_thw=grid_thw)"]
+    DP -->|"use_data_parallel=False"| VISION["self.visual(pixel_values, grid_thw)"]
 
-    VISION --> VIT["Qwen2VisionTransformer.forward()\n或 Qwen3_VisionTransformer.forward()"]
-    VIT --> PE["patch_embed()\npixel_values → [L, C, T, H, W]\nConv3d → [num_patches, embed_dim]"]
-    PE --> POS["位置编码\nQwen2: rot_pos_emb()（旋转）\nQwen3: fast_pos_embed_interpolate()（双线性插值）"]
-    POS --> SEQLEN["计算 cu_seqlens\n（累积序列长度）"]
-    SEQLEN --> BLOCKS["Vision Transformer Blocks × depth\n• Qwen2VisionAttention\n• Qwen2VisionMLP\n（支持 Flash Attention / MM Encoder Attention）"]
+    VISION --> VIT["VisionTransformer.forward()\nQwen2 或 Qwen3 版本"]
+    VIT --> PE["patch_embed()\npixel_values → patch embedding\nConv3d 卷积"]
+    PE --> POS["位置编码\nQwen2: rot_pos_emb 旋转位置编码\nQwen3: fast_pos_embed_interpolate 插值"]
+    POS --> SEQLEN["计算 cu_seqlens 累积序列长度"]
+    SEQLEN --> BLOCKS["Vision Transformer Blocks x depth\nQwen2VisionAttention + MLP\n支持 Flash Attention"]
     BLOCKS --> DS{"Qwen3 DeepStack?"}
-    DS -->|"layer in deepstack_visual_indexes"| DSF["deepstack_merger_list[idx](x)\n提取中间层特征"]
-    DS -->|否| MERGE2["Merger（空间合并）\nLN + MLP\n输出: [seq_len, hidden_size]"]
+    DS -->|"当前层在 deepstack_visual_indexes 中"| DSF["deepstack_merger_list 提取\n中间层特征"]
+    DS -->|"否"| MERGE2["Merger 空间合并\nLN + MLP\n输出 shape: seq_len x hidden_size"]
     DSF --> MERGE2
 
-    MERGE2 --> SPLIT["image_embeds.split(sizes)\n拆分回每张图片"]
-    SPLIT --> RETURN["返回 tuple[Tensor, ...]\n每个 tensor 对应一张图片/视频"]
+    MERGE2 --> SPLIT["image_embeds.split(sizes)\n拆分回各张图片"]
+    SPLIT --> RETURN["返回 tuple of Tensor\n每个元素对应一张图片/视频"]
 
     style START fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
     style EMB fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
@@ -1254,10 +1254,10 @@ dim [-1]            → is_video_embed flag
     <div class="mermaid">
 flowchart TD
     INIT["vllm_ascend/__init__.py\n插件注册入口"] --> PLAT["NPUPlatform.pre_register_and_update()\n注册平台补丁"]
-    PLAT --> PP["patch/platform/\nWorker 启动前应用\n• 分布式 op\n• 调度\n• config 验证"]
+    PLAT --> PP["patch/platform/\nWorker 启动前应用\n涵盖：分布式 op、调度、config 验证"]
 
     INIT --> WORKER["Worker 初始化时\n应用 worker 补丁"]
-    WORKER --> WP["patch/worker/\n• 模型前向\n• Attention\n• 权重加载\n• Triton op 替换"]
+    WORKER --> WP["patch/worker/\n涵盖：模型前向、Attention\n权重加载、Triton op 替换"]
     WP --> QVL["patch_qwen3vl.py\n多模态专用 patch\n① MRoPE 加速\n② 位置插值\n③ DeepStack TP\n④ MoE PP 修复"]
 
     style INIT fill:#292524,stroke:#d97706,color:#fcd34d
