@@ -406,7 +406,8 @@
 </div>
 
 <div class="tabs">
-  <button class="tab active" onclick="switchTab('overview')">总览对比</button>
+  <button class="tab active" onclick="switchTab('arch')">模型架构</button>
+  <button class="tab" onclick="switchTab('overview')">总览对比</button>
   <button class="tab" onclick="switchTab('flow')">详细流程图</button>
   <button class="tab" onclick="switchTab('encoder')">视觉编码器</button>
   <button class="tab" onclick="switchTab('tensors')">张量形状</button>
@@ -414,9 +415,169 @@
 </div>
 
 <!-- ============================================================ -->
+<!-- TAB 0: 模型架构 -->
+<!-- ============================================================ -->
+<div id="tab-arch" class="section active content">
+
+  <h2>核心问题：图片+文字请求用的是同一个语言模型吗？</h2>
+
+  <div class="info-box purple">
+    <strong>结论：是同一个语言模型。</strong>没有专门处理多模态的第二个独立 LLM。视觉编码器（Visual Encoder）只负责把图片像素转换成 embedding 向量，然后插入文本 embedding 序列，最终统一送入 <strong>同一个</strong> Qwen3 语言模型。
+  </div>
+
+  <h2>整体模型结构</h2>
+
+  <div class="mermaid-wrap">
+    <div class="mermaid">
+graph TB
+    subgraph VLM["Qwen3VLForConditionalGeneration（整个多模态模型）"]
+        direction TB
+        subgraph VE["self.visual（视觉编码器，仅多模态请求执行）"]
+            PE2["patch_embed\n像素 → patch embedding"]
+            BLOCKS2["Vision Transformer Blocks\n（独立的 ViT，不共享 LLM 权重）"]
+            MERGER["Merger 空间合并层"]
+            PE2 --> BLOCKS2 --> MERGER
+        end
+
+        subgraph LM["self.language_model（Qwen3LLMForCausalLM）"]
+            EMBED["embed_tokens\ntoken ID → embedding"]
+            FUSE["合并层\n视觉 embedding 插入文本 embedding 序列"]
+            LAYERS["Qwen3 Transformer Layers\n（32 / 64 / 80 层，取决于模型尺寸）"]
+            LMH["lm_head → logits → 采样"]
+            EMBED --> FUSE
+            FUSE --> LAYERS --> LMH
+        end
+
+        VE -->|"视觉 embedding\n(num_vis_tokens, hidden_size)"| FUSE
+    end
+
+    IMG_IN["🖼️ 图片输入"] --> VE
+    TXT_IN["📝 文本 token"] --> EMBED
+    LMH --> OUT["生成的 token"]
+
+    style VLM fill:#0d1117,stroke:#7c3aed,color:#e9d5ff
+    style VE fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
+    style LM fill:#022c22,stroke:#059669,color:#d1fae5
+    style PE2 fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style BLOCKS2 fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style MERGER fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style EMBED fill:#064e3b,stroke:#059669,color:#d1fae5
+    style FUSE fill:#292524,stroke:#d97706,color:#fcd34d
+    style LAYERS fill:#064e3b,stroke:#059669,color:#d1fae5
+    style LMH fill:#064e3b,stroke:#059669,color:#d1fae5
+    style IMG_IN fill:#1e1b4b,stroke:#7c3aed,color:#c4b5fd
+    style TXT_IN fill:#022c22,stroke:#059669,color:#d1fae5
+    style OUT fill:#292524,stroke:#d97706,color:#fcd34d
+    </div>
+  </div>
+
+  <h2>代码证据</h2>
+
+  <div class="info-box blue">
+    源文件：<code>vllm/model_executor/models/qwen3_vl.py:2538</code> — 无论是多模态还是纯文本请求，最终都调用同一个 <code>self.language_model.model()</code>
+  </div>
+
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>调用参数</th>
+        <th>🖼️ 多模态请求</th>
+        <th>📝 纯文本请求</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>传入函数</td>
+        <td colspan="2" style="text-align:center;color:#d97706"><code>self.language_model.model(...)</code>  ← 完全相同的函数</td>
+      </tr>
+      <tr>
+        <td><code>input_ids</code></td>
+        <td><code>None</code>（已转换为 embedding，不需要再查表）</td>
+        <td><code>Tensor[seq_len]</code>（token ID，由 embed_tokens 内部查表）</td>
+      </tr>
+      <tr>
+        <td><code>inputs_embeds</code></td>
+        <td><code>Tensor[seq_len, hidden_size]</code><br>= 文本 embedding + 视觉 embedding 拼合</td>
+        <td><code>None</code></td>
+      </tr>
+      <tr>
+        <td>后续计算</td>
+        <td colspan="2" style="text-align:center;color:#d97706">完全相同：Transformer layers → lm_head → logits → 采样</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>为什么语言模型对"图片 token"无感知？</h2>
+
+  <div class="mermaid-wrap">
+    <div class="mermaid">
+graph LR
+    subgraph INPUT["LLM 看到的序列（inputs_embeds）"]
+        direction LR
+        T1["[你好]\n文本 embedding\n(1, 4096)"]
+        V1["[图片 token 1]\n视觉 embedding\n(1, 4096)"]
+        V2["[图片 token 2]\n视觉 embedding\n(1, 4096)"]
+        VN["[... × N]\n视觉 embedding\n×768 个"]
+        T2["[请描述]\n文本 embedding\n(1, 4096)"]
+    end
+
+    NOTE["语言模型只看到形状相同的 embedding 向量\n不区分来源，统一当作序列 token 处理"]
+
+    INPUT --> NOTE
+
+    style INPUT fill:#0d1117,stroke:#7c3aed,color:#e9d5ff
+    style T1 fill:#064e3b,stroke:#059669,color:#d1fae5
+    style V1 fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style V2 fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style VN fill:#2e1065,stroke:#9333ea,color:#e9d5ff
+    style T2 fill:#064e3b,stroke:#059669,color:#d1fae5
+    style NOTE fill:#292524,stroke:#d97706,color:#fcd34d
+    </div>
+  </div>
+
+  <h2>模型组件权重对应关系</h2>
+
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>组件</th>
+        <th>权重 key 前缀</th>
+        <th>执行时机</th>
+        <th>参数量（7B 为例）</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>self.visual</code><br>视觉编码器</td>
+        <td><code>visual.*</code></td>
+        <td>仅多模态请求，Prefill 前执行一次</td>
+        <td>~700M</td>
+      </tr>
+      <tr>
+        <td><code>self.visual.merger</code><br>视觉-语言桥接层</td>
+        <td><code>visual.merger.*</code><br><code>visual.deepstack_merger_list.*</code></td>
+        <td>视觉编码结束后，输出维度对齐到 LLM hidden_size</td>
+        <td>~100M</td>
+      </tr>
+      <tr>
+        <td><code>self.language_model</code><br>Qwen3 LLM</td>
+        <td><code>language_model.*</code></td>
+        <td><strong>所有请求</strong>（多模态和纯文本）都执行</td>
+        <td>~7B</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info-box green">
+    <strong>总结：</strong>Qwen3.5 是典型的 <strong>"视觉编码器 + 语言模型"</strong> 融合架构（类似 LLaVA 系列）。视觉编码器和语言模型权重独立，但推理时共用同一套 Transformer layers 完成最终的理解和生成。Decode 阶段两种请求路径完全一致。
+  </div>
+
+</div>
+
+<!-- ============================================================ -->
 <!-- TAB 1: 总览对比 -->
 <!-- ============================================================ -->
-<div id="tab-overview" class="section active content">
+<div id="tab-overview" class="section content">
 
   <div class="legend">
     <div class="legend-item"><div class="legend-dot" style="background:#7c3aed"></div>仅多模态（图片/视频+文字）</div>
@@ -753,11 +914,11 @@ flowchart TD
     EMB["model.embed_multimodal(**mm_kwargs_batch)"] --> PARSE
     PARSE["_parse_and_validate_multimodal_inputs()\n• 提取 pixel_values\n• 提取 image_grid_thw\n• 检查输入格式"] --> BRANCH
 
-    BRANCH{是否预计算\nembeds?}
-    BRANCH -->|"image_input.type\n== 'image_embeds'"| DIRECT["直接使用预计算 embeds\n跳过视觉编码器"]
+    BRANCH{"是否预计算 embeds?"}
+    BRANCH -->|"image_input.type == 'image_embeds'"| DIRECT["直接使用预计算 embeds\n跳过视觉编码器"]
     BRANCH -->|"type == 'pixel_values'"| PROC
 
-    PROC["_process_image_input()"] --> DP{是否数据\n并行?}
+    PROC["_process_image_input()"] --> DP{"是否数据并行?"}
     DP -->|"use_data_parallel=True"| DPV["run_dp_sharded_mrope_vision_model()\n分布式视觉编码"]
     DP -->|"use_data_parallel=False"| VISION["self.visual(pixel_values, grid_thw=grid_thw)"]
 
@@ -766,7 +927,7 @@ flowchart TD
     PE --> POS["位置编码\nQwen2: rot_pos_emb()（旋转）\nQwen3: fast_pos_embed_interpolate()（双线性插值）"]
     POS --> SEQLEN["计算 cu_seqlens\n（累积序列长度）"]
     SEQLEN --> BLOCKS["Vision Transformer Blocks × depth\n• Qwen2VisionAttention\n• Qwen2VisionMLP\n（支持 Flash Attention / MM Encoder Attention）"]
-    BLOCKS --> DS{Qwen3 DeepStack?}
+    BLOCKS --> DS{"Qwen3 DeepStack?"}
     DS -->|"layer in deepstack_visual_indexes"| DSF["deepstack_merger_list[idx](x)\n提取中间层特征"]
     DS -->|否| MERGE2["Merger（空间合并）\nLN + MLP\n输出: [seq_len, hidden_size]"]
     DSF --> MERGE2
@@ -1135,10 +1296,10 @@ flowchart TD
     }
   });
 
-  function switchTab(name) {
+  function switchTab(name, el) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    event.target.classList.add('active');
+    (el || event.target).classList.add('active');
     document.getElementById('tab-' + name).classList.add('active');
   }
 </script>
